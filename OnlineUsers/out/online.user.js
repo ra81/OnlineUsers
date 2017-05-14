@@ -13,7 +13,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @description    Сбор информации по игрокам в онлайне
 // @include        http*://virtonomic*.*/*/main/user/list/online
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
-// @version        1.0
+// @version        1.1
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -1198,6 +1198,8 @@ function log(msg, ...args) {
 }
 function Start() {
     let $tbl = $("table.grid");
+    let $online = $("<div></div>");
+    $tbl.before($online);
     // зачистить старую историю
     let $clearBtn = $("<input type='button' id='clearOnline' value=' Clear All Realms '>");
     $clearBtn.on("click", () => {
@@ -1210,13 +1212,11 @@ function Start() {
     // экспортировать данные
     let $exportBtn = $("<input type='button' id='exportOnline' value=' Export All Realms '>");
     $exportBtn.on("click", () => {
-        exportData($tbl);
+        exportData($online);
     });
     // кнопки выводим
-    let $online = $("<div></div>");
     $online.append($exportBtn);
     $online.append($clearBtn);
-    $tbl.before($online);
     // запуск сбора данных
     timerStart();
 }

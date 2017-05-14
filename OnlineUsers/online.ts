@@ -31,6 +31,8 @@ function log(msg: string, ...args: any[]) {
 function Start() {
 
     let $tbl = $("table.grid");
+    let $online = $("<div></div>");
+    $tbl.before($online);
 
     // зачистить старую историю
     let $clearBtn = $("<input type='button' id='clearOnline' value=' Clear All Realms '>");
@@ -45,14 +47,12 @@ function Start() {
     // экспортировать данные
     let $exportBtn = $("<input type='button' id='exportOnline' value=' Export All Realms '>");
     $exportBtn.on("click", () => {
-        exportData($tbl);
+        exportData($online);
     });
 
     // кнопки выводим
-    let $online = $("<div></div>");
     $online.append($exportBtn);
     $online.append($clearBtn);
-    $tbl.before($online);
 
     // запуск сбора данных
     timerStart();
