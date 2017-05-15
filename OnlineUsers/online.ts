@@ -138,7 +138,7 @@ function exportData($place: JQuery) {
 
     let $txt = $('<textarea id="txtExport" style="display:block;width: 800px; height: 200px"></textarea>');
 
-    let totalStr = "realm;pid;pname;company;daycount;count;lastseen\n";
+    let totalStr = "realm;pid;pname;company;regdate;daycount;count;lastseen\n";
     for (let realm of RealmList) {
         let storeKey = buildStoreKey(realm, StorageKeyCode);
         let str = localStorage.getItem(storeKey);
@@ -150,7 +150,9 @@ function exportData($place: JQuery) {
 
         for (let key in info) {
             let item = info[key];
-            let str = formatStr("{0};{1};{2};{3};{4};{5};{6}", realm, item.pid, item.pname, item.company, item.dayCount, item.count, item.lastSeenDate);
+            let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7}",
+                realm, item.pid, item.pname, item.company, item.regDate, item.dayCount, item.count, item.lastSeenDate);
+
             totalStr += str + "\n";
         }
     }
@@ -196,7 +198,7 @@ function saveInfo(realm: string, parsedInfo: IDictionaryN<IStoreItem2>) {
     // сохраним назад
     let storeKey = buildStoreKey(realm, StorageKeyCode);
     localStorage[storeKey] = JSON.stringify([DataVersion, loadedInfo]);
-    log("saved to " + storeKey, loadedInfo);
+    log("saved to " + storeKey, [DataVersion, loadedInfo]);
 }
 
 /**
