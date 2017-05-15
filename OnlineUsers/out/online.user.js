@@ -13,7 +13,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @description    Сбор информации по игрокам в онлайне
 // @include        http*://virtonomic*.*/*/main/user/list/online
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
-// @version        1.1
+// @version        1.2
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -1186,9 +1186,9 @@ function Import($place) {
 /////// <reference path= "../../XioPorted/PageParsers/1_Exceptions.ts" />
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
-let Realm = getRealmOrError();
-let CurrentGameDate = parseGameDate(document, document.location.pathname);
-let DataVersion = 1; // версия сохраняемых данных. При изменении формата менять и версию
+//let Realm = getRealmOrError();
+//let CurrentGameDate = parseGameDate(document, document.location.pathname);
+let DataVersion = 2; // версия сохраняемых данных. При изменении формата менять и версию
 let StorageKeyCode = "onus";
 let RealmList = ["anna", "vera", "olga", "mary", "lien"];
 // упрощаем себе жисть, подставляем имя скрипта всегда в сообщении
@@ -1236,6 +1236,7 @@ function getInfo_async(realm) {
         let url = `/${realm}/main/user/list/online`;
         yield tryGet_async(`/${realm}/main/common/util/setpaging/usermain/getUserListOnline/20000`);
         let html = yield tryGet_async(url);
+        let gameDate = parseGameDate(html, url);
         let $rows = $(html).find("tr.even, tr.odd");
         let dict = {};
         $rows.each((i, el) => {
@@ -1253,13 +1254,17 @@ function getInfo_async(realm) {
             let pid = n[0];
             let pname = $a.text();
             let company = $r.children("td").eq(2).text();
+            let regDate = extractDate($r.children("td").eq(3).text());
+            if (regDate == null)
+                throw new Error(`не нашел дату регистрации для ${pid}: ${pname}`);
             dict[pid] = {
                 pid: pid,
                 pname: pname,
                 company: company,
                 count: 1,
                 dayCount: 1,
-                lastSeenDate: dateToShort(CurrentGameDate)
+                lastSeenDate: dateToShort(gameDate),
+                regDate: dateToShort(regDate)
             };
         });
         return dict;
@@ -1292,34 +1297,71 @@ function exportData($place) {
     return true;
 }
 function saveInfo(realm, parsedInfo) {
-    let storeKey = buildStoreKey(realm, StorageKeyCode);
-    let storedInfo = null;
-    if (localStorage[storeKey] != null)
-        storedInfo = JSON.parse(localStorage[storeKey]);
-    // добавляем новую информацию
-    if (storedInfo == null)
-        storedInfo = [DataVersion, parsedInfo];
-    else {
-        // обновим записи в словаре из кэша
-        for (let key in parsedInfo) {
-            let pid = key;
-            let storedItem = storedInfo[1][pid];
-            if (storedItem == null) {
-                storedItem = parsedInfo[pid];
-            }
-            else {
-                storedItem.count++;
-                if (dateFromShort(storedItem.lastSeenDate) < CurrentGameDate) {
-                    storedItem.lastSeenDate = dateToShort(CurrentGameDate);
-                    storedItem.dayCount++;
-                }
-            }
-            storedInfo[1][pid] = storedItem;
+    let loadedInfo = loadInfo(realm);
+    for (let pid in parsedInfo) {
+        let parsed = parsedInfo[pid];
+        let loaded = loadedInfo[pid];
+        if (loaded == null) {
+            loaded = parsed;
         }
+        else {
+            loaded.count++;
+            // счетчик дней
+            if (dateFromShort(loaded.lastSeenDate) < dateFromShort(parsed.lastSeenDate)) {
+                loaded.lastSeenDate = parsed.lastSeenDate;
+                loaded.dayCount++;
+            }
+            else if (dateFromShort(loaded.lastSeenDate) > dateFromShort(parsed.lastSeenDate)) {
+                // вообще такого быть не должно но косяк со сбором данных вер1 к такому мог приводить
+                log(`дата послед наблюдения pid: ${pid}, stored: ${loaded.lastSeenDate} > parsed: ${parsed.lastSeenDate}`);
+                loaded.lastSeenDate = parsed.lastSeenDate;
+                loaded.dayCount++;
+            }
+            // если дата реги не стоит то обновить
+            if (loaded.regDate.length <= 0)
+                loaded.regDate = parsed.regDate;
+        }
+        loadedInfo[pid] = loaded;
     }
     // сохраним назад
-    localStorage[storeKey] = JSON.stringify(storedInfo);
-    log("saved to " + storeKey, storedInfo);
+    let storeKey = buildStoreKey(realm, StorageKeyCode);
+    localStorage[storeKey] = JSON.stringify([DataVersion, loadedInfo]);
+    log("saved to " + storeKey, loadedInfo);
+}
+/**
+ * Даже если в хранилище пусто вернет пустой словарь. Если тип данных устарел то конвертает до текущего
+ * @param realm
+ */
+function loadInfo(realm) {
+    let storeKey = buildStoreKey(realm, StorageKeyCode);
+    let raw = localStorage[storeKey];
+    if (raw == null)
+        return {};
+    let ver;
+    let info;
+    [ver, info] = JSON.parse(raw);
+    // добавляем новую информацию
+    if (ver === DataVersion)
+        return info;
+    if (ver === 1) {
+        log(`${realm} => ver:1 конверсия до ${DataVersion}`);
+        let info1 = info;
+        let info2 = {};
+        for (let pid in info1) {
+            let item1 = info1[pid];
+            info2[pid] = {
+                pid: item1.pid,
+                pname: item1.pname,
+                company: item1.company,
+                count: item1.count,
+                dayCount: item1.dayCount,
+                lastSeenDate: item1.lastSeenDate,
+                regDate: ""
+            };
+        }
+        return info2;
+    }
+    throw new Error("не обработана версионность данных");
 }
 /**
  * Со странички пробуем спарсить игровую дату. А так как дата есть почти везде, то можно почти везде ее спарсить

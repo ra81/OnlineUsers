@@ -6,16 +6,26 @@
 
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
-let Realm = getRealmOrError();
-let CurrentGameDate = parseGameDate(document, document.location.pathname);
-let DataVersion = 1;    // версия сохраняемых данных. При изменении формата менять и версию
+//let Realm = getRealmOrError();
+//let CurrentGameDate = parseGameDate(document, document.location.pathname);
+let DataVersion = 2;    // версия сохраняемых данных. При изменении формата менять и версию
 let StorageKeyCode = "onus";
 let RealmList = ["anna", "vera", "olga", "mary", "lien"];
 
-interface IStoreItem {
+interface IStoreItem1 {
     pid: number;
     pname: string;
     company: string;
+    dayCount: number;           // сколько дней попадался
+    count: number;              // сколько раз всего игрок встречался
+    lastSeenDate: string;       // дата в шорт формате строкой
+}
+
+interface IStoreItem2 {
+    pid: number;
+    pname: string;
+    company: string;
+    regDate: string;
     dayCount: number;           // сколько дней попадался
     count: number;              // сколько раз всего игрок встречался
     lastSeenDate: string;       // дата в шорт формате строкой
@@ -70,14 +80,15 @@ function timerStart() {
     }
 }
 
-async function getInfo_async(realm: string): Promise<IDictionaryN<IStoreItem>> {
+async function getInfo_async(realm: string): Promise<IDictionaryN<IStoreItem2>> {
 
     let url = `/${realm}/main/user/list/online`;
     await tryGet_async(`/${realm}/main/common/util/setpaging/usermain/getUserListOnline/20000`);
     let html = await tryGet_async(url);
+    let gameDate = parseGameDate(html, url);
     let $rows = $(html).find("tr.even, tr.odd");
 
-    let dict: IDictionaryN<IStoreItem> = {};
+    let dict: IDictionaryN<IStoreItem2> = {};
     $rows.each((i, el) => {
         let $r = $(el);
 
@@ -96,6 +107,10 @@ async function getInfo_async(realm: string): Promise<IDictionaryN<IStoreItem>> {
         let pid = n[0];
         let pname = $a.text();
         let company = $r.children("td").eq(2).text();
+        let regDate = extractDate($r.children("td").eq(3).text());
+        if (regDate == null)
+            throw new Error(`не нашел дату регистрации для ${pid}: ${pname}`);
+
 
         dict[pid] = {
             pid: pid,
@@ -103,7 +118,8 @@ async function getInfo_async(realm: string): Promise<IDictionaryN<IStoreItem>> {
             company: company,
             count: 1,
             dayCount: 1,
-            lastSeenDate: dateToShort(CurrentGameDate)
+            lastSeenDate: dateToShort(gameDate),
+            regDate: dateToShort(regDate)
         }
     });
 
@@ -129,7 +145,7 @@ function exportData($place: JQuery) {
         if (str == null)
             throw new Error("что то пошло не так при экспорте");
 
-        let storedInfo = JSON.parse(str) as [number, IDictionaryN<IStoreItem>];
+        let storedInfo = JSON.parse(str) as [number, IDictionaryN<IStoreItem2>];
         let info = storedInfo[1];
 
         for (let key in info) {
@@ -144,44 +160,86 @@ function exportData($place: JQuery) {
     return true;
 }
 
-function saveInfo(realm:string, parsedInfo: IDictionaryN<IStoreItem>) {
+function saveInfo(realm: string, parsedInfo: IDictionaryN<IStoreItem2>) {
 
-    let storeKey = buildStoreKey(realm, StorageKeyCode);
-    let storedInfo: [number, IDictionaryN<IStoreItem>] | null = null;
-    if (localStorage[storeKey] != null)
-        storedInfo = JSON.parse(localStorage[storeKey]);
+    let loadedInfo = loadInfo(realm);
+    for (let pid in parsedInfo) {
+        let parsed = parsedInfo[pid];
+        let loaded = loadedInfo[pid];
 
-    // добавляем новую информацию
-    if (storedInfo == null)
-        storedInfo = [DataVersion, parsedInfo];
-    else {
-        // обновим записи в словаре из кэша
-        for (let key in parsedInfo) {
-            let pid = key as any as number;
-
-            let storedItem = storedInfo[1][pid];
-            if (storedItem == null) {
-                storedItem = parsedInfo[pid];
-            }
-            else {
-                storedItem.count++;
-                if (dateFromShort(storedItem.lastSeenDate) < CurrentGameDate) {
-                    storedItem.lastSeenDate = dateToShort(CurrentGameDate);
-                    storedItem.dayCount++;
-                }
-            }
-
-            storedInfo[1][pid] = storedItem;
+        if (loaded == null) {
+            loaded = parsed;
         }
+        else {
+            loaded.count++;
+
+            // счетчик дней
+            if (dateFromShort(loaded.lastSeenDate) < dateFromShort(parsed.lastSeenDate)) {
+                loaded.lastSeenDate = parsed.lastSeenDate;
+                loaded.dayCount++;
+            }
+            else if (dateFromShort(loaded.lastSeenDate) > dateFromShort(parsed.lastSeenDate)) {
+                // вообще такого быть не должно но косяк со сбором данных вер1 к такому мог приводить
+                log(`дата послед наблюдения pid: ${pid}, stored: ${loaded.lastSeenDate} > parsed: ${parsed.lastSeenDate}`);
+                loaded.lastSeenDate = parsed.lastSeenDate;
+                loaded.dayCount++;
+            }
+
+            // если дата реги не стоит то обновить
+            if (loaded.regDate.length <= 0)
+                loaded.regDate = parsed.regDate;
+        }
+
+        loadedInfo[pid] = loaded;
     }
 
     // сохраним назад
-    localStorage[storeKey] = JSON.stringify(storedInfo);
-
-    log("saved to " + storeKey, storedInfo);
+    let storeKey = buildStoreKey(realm, StorageKeyCode);
+    localStorage[storeKey] = JSON.stringify([DataVersion, loadedInfo]);
+    log("saved to " + storeKey, loadedInfo);
 }
 
+/**
+ * Даже если в хранилище пусто вернет пустой словарь. Если тип данных устарел то конвертает до текущего
+ * @param realm
+ */
+function loadInfo(realm: string): IDictionaryN<IStoreItem2> {
 
+    let storeKey = buildStoreKey(realm, StorageKeyCode);
+    let raw = localStorage[storeKey];
+    if (raw == null)
+        return {};
+
+    let ver: number;
+    let info: any;
+    [ver, info] = JSON.parse(raw);
+
+    // добавляем новую информацию
+    if (ver === DataVersion)
+        return info;
+
+    if (ver === 1) {
+        log(`${realm} => ver:1 конверсия до ${DataVersion}`);
+        let info1 = info as IDictionaryN<IStoreItem1>;
+        let info2: IDictionaryN<IStoreItem2> = {};
+
+        for (let pid in info1) {
+            let item1 = info1[pid];
+            info2[pid] = {
+                pid: item1.pid,
+                pname: item1.pname,
+                company: item1.company,
+                count: item1.count,
+                dayCount: item1.dayCount,
+                lastSeenDate: item1.lastSeenDate,
+                regDate: ""
+            };
+        }
+        return info2;
+    }
+
+    throw new Error("не обработана версионность данных");
+}
 
 
 /**

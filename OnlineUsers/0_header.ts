@@ -5,5 +5,5 @@
 // @description    Сбор информации по игрокам в онлайне
 // @include        http*://virtonomic*.*/*/main/user/list/online
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
-// @version        1.1
+// @version        1.2
 // ==/UserScript==
