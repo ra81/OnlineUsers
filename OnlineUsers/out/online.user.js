@@ -13,7 +13,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @description    Сбор информации по игрокам в онлайне
 // @include        http*://virtonomic*.*/*/main/user/list/online
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
-// @version        1.2
+// @version        1.3
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -1224,9 +1224,15 @@ function timerStart() {
     setInterval(onTime_async, 1000 * 60 * 30); // раз в 30 мин
     function onTime_async() {
         return __awaiter(this, void 0, void 0, function* () {
-            for (let realm of RealmList) {
-                let info = yield getInfo_async(realm);
-                saveInfo(realm, info);
+            try {
+                for (let realm of RealmList) {
+                    let info = yield getInfo_async(realm);
+                    saveInfo(realm, info);
+                }
+            }
+            catch (err) {
+                let e = err;
+                log(`${e.message} => ${e.stack}`);
             }
         });
     }

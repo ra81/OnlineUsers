@@ -73,9 +73,15 @@ function timerStart() {
     setInterval(onTime_async, 1000 * 60 * 30);  // раз в 30 мин
 
     async function onTime_async() {
-        for (let realm of RealmList) {
-            let info = await getInfo_async(realm);
-            saveInfo(realm, info);
+        try {
+            for (let realm of RealmList) {
+                let info = await getInfo_async(realm);
+                saveInfo(realm, info);
+            }
+        }
+        catch (err) {
+            let e = err as Error;
+            log(`${e.message} => ${e.stack}`);
         }
     }
 }
