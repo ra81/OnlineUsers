@@ -60,8 +60,15 @@ function Start() {
         exportData($online);
     });
 
+    // экспортировать данные
+    let $exportFinalBtn = $("<input type='button' id='exportFinal' value=' Export All Realms Actives '>");
+    $exportFinalBtn.on("click", () => {
+        exportWithActives_async($online);
+    });
+
     // кнопки выводим
     $online.append($exportBtn);
+    $online.append($exportFinalBtn);
     $online.append($clearBtn);
 
     // запуск сбора данных
@@ -166,6 +173,91 @@ function exportData($place: JQuery) {
     $txt.text(totalStr);
     $place.append($txt);
     return true;
+}
+
+async function exportWithActives_async($place: JQuery) {
+
+    if ($place.length <= 0)
+        return false;
+
+    if ($place.find("#txtExport").length > 0) {
+        $place.find("#txtExport").remove();
+        return;
+    }
+
+    let $txt = $('<textarea id="txtExport" style="display:block;width: 800px; height: 200px"></textarea>');
+
+    // сразу читаю все реалмы а потом уже обрабатываю. А то пока читаю активы что то еще запишется
+    let realmDic: IDictionary<IDictionaryN<IStoreItem2>> = {};
+    for (let realm of RealmList) {
+        let storeKey = buildStoreKey(realm, StorageKeyCode);
+        let str = localStorage.getItem(storeKey);
+        if (str == null)
+            throw new Error("что то пошло не так при экспорте");
+
+        let storedInfo = JSON.parse(str) as [number, IDictionaryN<IStoreItem2>];
+        realmDic[realm] = storedInfo[1];
+    }
+
+
+    let totalStr = "realm;pid;pname;company;regdate;daycount;count;lastseen;actives;turnover\n";
+    let totalErrs = 0;
+    for (let realm in realmDic) {
+        let info = realmDic[realm];
+        let pidcnt = Object.keys(info).length;
+        let gathered = 0;
+        let errlist: string[] = [];
+        log(`экспорт ${realm}`);
+
+        for (let pid in info) {
+            let item = info[pid];
+            let [act, turn] = [-1, -1];
+
+            // запросим активы и оборот если есть компания на реалме
+            if (item.company.length > 0) {
+                try {
+                    [act, turn] = await getActives_async(realm, pid as any as number);
+                    gathered++;
+                    //log(`${realm} осталось собрать ${pidcnt - gathered}`);
+                }
+                catch (err) {
+                    log(`ошибка сбора активов для ${realm}:${pid}`);
+                    errlist.push(pid);
+                }
+            }
+
+            let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7};{8};{9}",
+                realm, item.pid, item.pname, item.company, item.regDate, item.dayCount, item.count, item.lastSeenDate, act, turn);
+
+            totalStr += str + "\n";
+        }
+
+        log(`для ${realm} ошибок сбора ${errlist.length}`, errlist);
+        totalErrs += errlist.length;
+    }
+
+    log(`общее число ошибок сбора ${totalErrs}`);
+
+    $txt.text(totalStr);
+    $place.append($txt);
+    return true;
+
+    async function getActives_async(realm: string, pid: number): Promise<[number, number]> {
+        let url = `/${realm}/main/user/view/${pid}`;
+        let html = await tryGet_async(url);
+
+        let $html = $(html);
+        if ($html.find("#dbLocked").length > 0)
+            throw new Error(`на ${realm} идет пересчет`);
+
+        let $actives = $html.find("td:contains('активы:')").last(); // будем всегда несколько ячеек нам нужна самая внутренняя
+        let actv = numberfyOrError($actives.next("td").text(), -1);
+
+        let $turn = $html.find("td:contains('оборот:')").last();
+        let turn = numberfyOrError($turn.next("td").text(), -1);
+
+        return [actv, turn];
+    }
 }
 
 function saveInfo(realm: string, parsedInfo: IDictionaryN<IStoreItem2>) {
